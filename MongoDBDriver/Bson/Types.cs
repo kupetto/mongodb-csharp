@@ -3,7 +3,7 @@ using System;
 
 namespace MongoDB.Driver.Bson
 {
-    public enum BsonDataType:sbyte
+    public enum BsonDataType: sbyte
     {
         Number = 1,
         String = 2, //int32 cstring The int32 is the # bytes following (# of bytes in string + 1 for terminating NULL)

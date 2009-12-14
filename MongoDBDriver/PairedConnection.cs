@@ -77,8 +77,8 @@ namespace MongoDB.Driver
         private void SwapHosts(){
             int tport = this.Port;
             string tHost = this.Host;
-            port = this.SlavePort;
-            host = this.slaveHost;
+            _port = this.SlavePort;
+            _host = this.slaveHost;
             slavePort = tport;
             slaveHost = tHost;
         }

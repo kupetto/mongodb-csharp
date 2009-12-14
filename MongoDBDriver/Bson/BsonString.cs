@@ -4,7 +4,7 @@ using System.Text;
 
 namespace MongoDB.Driver.Bson
 {
-    public class BsonString:BsonType
+    public class BsonString: BsonType
     {
         private UTF8Encoding encoding = new UTF8Encoding();
         private String val;

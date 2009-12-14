@@ -5,12 +5,12 @@ using System.Runtime.InteropServices;
 // General Information about an assembly is controlled through the following 
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("MongoDB.Linq")]
+[assembly: AssemblyTitle("TestMongo")]
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("")]
-[assembly: AssemblyProduct("MongoDB.Linq")]
-[assembly: AssemblyCopyright("Copyright ©  2009")]
+[assembly: AssemblyCompany("dynameeting")]
+[assembly: AssemblyProduct("TestMongo")]
+[assembly: AssemblyCopyright("Copyright © dynameeting 2009")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 
@@ -20,7 +20,7 @@ using System.Runtime.InteropServices;
 [assembly: ComVisible(false)]
 
 // The following GUID is for the ID of the typelib if this project is exposed to COM
-[assembly: Guid("443b51f7-36c7-434b-9d50-2a22a2d9be44")]
+[assembly: Guid("7ee0e428-b7b6-4c1d-82e1-40f8c3878349")]
 
 // Version information for an assembly consists of the following four values:
 //

@@ -18,10 +18,12 @@ namespace MongoDB.Driver
     /// <summary>
     /// Description of Connection.
     /// </summary>
-    public class Connection
+    public class Connection : IDisposable
     {       
         public const string DEFAULTHOST = "localhost";
         public const int DEFAULTPORT = 27017;
+
+        private bool _disposed;
         
         protected TcpClient tcpclnt;
         #if DEBUG
@@ -30,14 +32,14 @@ namespace MongoDB.Driver
         }
         #endif
         
-        protected String host;    
+        protected String _host;    
         public string Host {
-            get { return host; }
+            get { return _host; }
         }
         
-        protected int port;       
+        protected int _port;       
         public int Port {
-            get { return port; }
+            get { return _port; }
         }
                             
         private ConnectionState state;      
@@ -52,9 +54,15 @@ namespace MongoDB.Driver
         }
         
         public Connection(String host, int port){
-            this.host = host;
-            this.port = port;
+            this._host = host;
+            this._port = port;
             this.state = ConnectionState.Closed;
+            _disposed = false;
+        }
+
+        ~Connection()
+        {
+            this.Dispose(false);
         }
 
         /// <summary>
@@ -117,15 +125,43 @@ namespace MongoDB.Driver
         }
         
         public virtual void Open(){
-            tcpclnt = new TcpClient();
-            tcpclnt.Connect(this.Host, this.Port);
-            this.state = ConnectionState.Opened;
+            if (this.State != ConnectionState.Opened)
+            {
+                tcpclnt = new TcpClient();
+                tcpclnt.Connect(this.Host, this.Port);
+                this.state = ConnectionState.Opened;
+            }
         }
         
         public void Close(){
-            tcpclnt.Close();
-            this.state = ConnectionState.Closed;
+            if (this.State != ConnectionState.Closed)
+            {
+                tcpclnt.Close();
+                this.state = ConnectionState.Closed;
+            }
         }
+
+        #region IDisposable Membri di
+
+        protected void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    this.Close();
+                }
+                _disposed = true;
+            }
+        }
+
+        public void Dispose()
+        {
+            this.Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        #endregion
     }
 }
 

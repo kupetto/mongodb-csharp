@@ -91,6 +91,8 @@
     <Compile Include="DatabaseMetaData.cs" />
     <Compile Include="DBRef.cs" />
     <Compile Include="Document.cs" />
+    <Compile Include="GridFS\Chunk.cs" />
+    <Compile Include="GridFS\GridFS.cs" />
     <Compile Include="ICursor.cs" />
     <Compile Include="IMongoCollection.cs" />
     <Compile Include="IO\GetMoreMessage.cs" />
@@ -107,6 +109,7 @@
     <Compile Include="Bson\BsonReader.cs" />
     <Compile Include="Bson\BsonElement.cs" />
     <Compile Include="Cursor.cs" />
+    <Compile Include="MongoDBNull.cs" />
     <Compile Include="MongoExceptions.cs" />
     <Compile Include="Oid.cs" />
     <Compile Include="IO\DeleteMessage.cs" />
@@ -117,7 +120,6 @@
     <Compile Include="Bson\BsonCodeWScope.cs" />
     <Compile Include="Code.cs" />
     <Compile Include="CodeWScope.cs" />
-    <Compile Include="Binary.cs" />
   </ItemGroup>
   <ItemGroup>
     <BootstrapperPackage Include="Microsoft.Net.Client.3.5">

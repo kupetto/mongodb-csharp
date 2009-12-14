@@ -13,60 +13,60 @@ namespace MongoDB.Driver.Bson
 
         //    Optional data subtype. Default is 0x02 
         //    See http://www.mongodb.org/display/DOCS/BSON#BSON-noteondatabinary
-        //private  enum SubtypeCode : byte
-        //{
-        //    Bytes = 2,
-        //    UUID = 3,
-        //    MD5 = 5,
-        //    UserDefined = 8
-        //}      
+        public enum SubtypeCode : byte{
+            Bytes = 2,
+            UUID = 3,
+            MD5 = 5,
+            UserDefined = 8
+        }      
 
         public BsonBinary() { }
 
-        public BsonBinary(byte[] bytes, byte subtype){
-            this.val = bytes;
-            this.subtype = subtype;
+        public BsonBinary(byte[] val){
+            this.val = val;
+            this.subtype = (byte)SubtypeCode.Bytes;            
         }
 
-        public BsonBinary(Binary binary){
-            this.val = binary.Bytes;
-            this.subtype = binary.Subtype;            
-        }
-
-        private byte subtype;
-        public byte Subtype{
-            get { return this.subtype; }
-            set { this.subtype = value; }
+        public BsonBinary(byte[] val, SubtypeCode subtype)
+        {
+            this.val = val;
+            this.subtype = (byte)subtype;
         }
 
         public int Size{
-            get { return val.Length; }
+            get {
+                int s = 4; // int 32 dimensione
+                s += 1; // byte subtipo
+                s += val.Length;
+                return s; 
+            }
         }
 
         public byte TypeNum{
             get { return (byte)BsonDataType.Binary; }
         }
 
+        private byte subtype;
+        public byte Subtype {
+            get { return this.subtype; }
+            set { this.subtype = value; }
+        }
 
         public int Read(BsonReader reader){
             int size = reader.ReadInt32();
-            int bytesRead = 4;
             this.Subtype = reader.ReadByte();
-            bytesRead += sizeof(byte);
             this.Val = reader.ReadBytes(size);
-            bytesRead += size;
-            return bytesRead;
-        }   
+            return this.Size;
+        }
 
         public void Write(BsonWriter writer){
-            writer.Write(this.Size);
+            writer.Write(this.Val.Length);
             writer.Write(this.Subtype);
             writer.Write(this.Val);            
         }
 
         public virtual object ToNative(){
-            
-            return new Binary(this.Val);
+            return this.Val;
         }
 
         public override string ToString()

@@ -10,12 +10,12 @@ using System.Net.Sockets;
 
 namespace MongoDB.Driver
 {
-    /// <summary>
-    /// Description of Mongo.
-    /// </summary>
-    public class Mongo
+    public class Mongo : IDisposable
     {
         private Connection connection;
+        private bool _hasPrivateConnection;
+        private bool _disposed;
+        private Database _currentDB;
         
         private String host;    
         public string Host {
@@ -29,21 +29,30 @@ namespace MongoDB.Driver
             set { port = value; }
         }
         
-        /// <summary>
-        /// Creates the object with the default localhost:27017 parameters. The connection is
-        /// created lazily.
-        /// </summary>
         public Mongo():this(Connection.DEFAULTHOST,Connection.DEFAULTPORT)
+        {        
+        }
+        
+        public Mongo(String host):this(host,Connection.DEFAULTPORT)
         {
         }
         
-        public Mongo(String host):this(host,Connection.DEFAULTPORT){
+        public Mongo(String host, int port) : this( new Connection(host, port)) 
+        {
         }
-        
-        public Mongo(String host, int port){
-            this.Host = host;
-            this.port = port;
-            connection = new Connection(host, port);
+
+        public Mongo(Connection connection)
+        {
+            _disposed = false;
+            this.Host = connection.Host;
+            this.Port = connection.Port;
+            this.connection = connection;
+            _hasPrivateConnection = true;
+        }
+
+        ~Mongo()
+        {
+            this.Dispose(false);
         }
 
         public Mongo(String leftHost, String rightHost):this(leftHost,Connection.DEFAULTPORT,rightHost,Connection.DEFAULTPORT,false){}        
@@ -56,14 +65,37 @@ namespace MongoDB.Driver
             connection = new PairedConnection(leftHost,leftPort,rightHost,rightPort,slaveOk);
         }
         
-        public Database getDB(String name){
+        public Database GetDB(String name)
+        {
             return new Database(connection, name);
         }
+
         public Database this[ String name ]  {
-            get{
-                return this.getDB(name);
+            get
+            {
+                return this.GetDB(name);
             }
-        }       
+        }
+
+        public void SetCurrentDB(String name)
+        {
+            _currentDB = this[name];
+        }
+        public void SetCurrentDB(MongoDB.Driver.Database database)
+        {
+            _currentDB = database;
+        }
+
+        public void SetCurrentDB(String name, string username, string password)
+        {
+            _currentDB = this[name];
+            this.CurrentDB.Authenticate(username, password);
+        }
+
+        public Database CurrentDB
+        {
+            get { return _currentDB; }
+        }
         
         public Boolean Connect(){
             connection.Open();
@@ -74,5 +106,39 @@ namespace MongoDB.Driver
             connection.Close();
             return connection.State == ConnectionState.Closed;
         }
+
+        public Connection Connection
+        {
+            get { return this.connection; }
+            set { 
+                this.connection = value;
+                _hasPrivateConnection = false;
+            }
+        }
+
+        #region IDisposable Membri di
+
+        protected void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    if (_hasPrivateConnection && this.Connection != null)
+                    {
+                        this.Connection.Dispose();
+                    }
+                }
+                _disposed = true;
+            }
+        }
+
+        public void Dispose()
+        {
+            this.Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        #endregion
     }
 }
