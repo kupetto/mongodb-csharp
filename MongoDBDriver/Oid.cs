@@ -29,8 +29,9 @@ namespace MongoDB.Driver{
         }
         
         public override bool Equals(object obj){
-            if(obj.GetType() == typeof(Oid)){
-                string hex = ((Oid)obj).ToString();
+            if(obj is Oid){
+                Oid o = obj as Oid;
+                string hex = (o).ToString();
                 return this.ToString().Equals(hex);
             }
             return false;
@@ -59,6 +60,20 @@ namespace MongoDB.Driver{
                 }
             }
             return bytes;            
+        }
+
+        public static bool operator ==(Oid a, Oid b)
+        {
+            if (((object)a) == null && ((object)b) == null) return true;
+            else if ((object)a != null) return a.Equals(b);
+            else return false;
+        }
+
+        public static bool operator !=(Oid a, Oid b)
+        {
+            if (((object)a) == null && ((object)b) == null) return false;
+            else if ((object)a != null) return !a.Equals(b);
+            else return true;
         }
     }
 }

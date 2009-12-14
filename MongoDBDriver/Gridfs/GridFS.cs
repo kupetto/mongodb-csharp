@@ -13,26 +13,35 @@ namespace MongoDB.Driver.GridFS
         Collection chunks;
         Collection files;
         private Document _fileDocument;
-        private List<Document> _chunksDocument;
+        private List<Chunk> _chunksDocument;
+        private string _filename;
 
         #region Ctors
 
         private GridFS()
         {
-            _chunksDocument = new List<Document>();
+            this.ChunkSize = DEFAULT_CHUNKSIZE;
+            _fileDocument = null;
+            _chunksDocument = new List<Chunk>();
+            _filename = string.Empty;
+            this.Oid = new Oid();
+            this.UploadDate = DateTime.MinValue;
+            this.Length = int.MinValue;
+            this.ContentType = string.Empty;
         }
 
         public GridFS(Mongo mongo)
-            : this(mongo, mongo.CurrentDB == null ? mongo.GetDB("fs") : mongo.CurrentDB, DEFAULT_ROOT)
+            : this(mongo, mongo.CurrentDB == null ? mongo.GetDB("test") : mongo.CurrentDB, DEFAULT_ROOT)
         {
         }
 
-        public GridFS(Mongo mongo, Database db) : this (mongo, db, DEFAULT_ROOT)
+        public GridFS(Mongo mongo, Database db) 
+            : this (mongo, db, DEFAULT_ROOT)
         {
         }
 
         public GridFS(Mongo mongo, string bucketName)
-            : this(mongo, mongo.CurrentDB == null ? mongo.GetDB("fs") : mongo.CurrentDB, bucketName)
+            : this(mongo, mongo.CurrentDB == null ? mongo.GetDB("test") : mongo.CurrentDB, bucketName)
         {
         }
 
@@ -48,171 +57,330 @@ namespace MongoDB.Driver.GridFS
 
         #endregion
 
-        public void StoreFile(string localFile, string mongoFilename, bool overwrite)
-        {
-            StoreFile(localFile, mongoFilename, overwrite, null);
-        }
+        #region Public Members
 
-        public void StoreFile(Stream stream, string mongoFilename, bool overwrite)
+        public string Filename 
         {
-            StoreFile(stream, mongoFilename, overwrite, null);
-        }
-
-        public void StoreFile(byte[] bytes, string mongoFilename, bool overwrite)
-        {
-            StoreFile(bytes, mongoFilename, overwrite, null);
-        }
-
-        public void StoreFile(string localFile, string mongoFilename, bool overwrite, string contentType)
-        {
-            byte[] buffer = null;
-            using (FileStream fs = new FileStream(localFile, FileMode.Open))
+            get { return _filename; }
+            set
             {
+                if (value != _filename )
+                {
+                    _filename = value;
+                    this.Refresh();
+                }
+            }
+        }
+
+        public Oid Oid { get; set; }
+
+        public DateTime UploadDate { get; set; }
+
+        public string ContentType { get; set; }
+
+        public int Length { get; set; }
+
+        public bool Exists
+        {
+            get 
+            {
+                return _fileDocument != null; 
+            }
+        }
+
+        public Collection Collection
+        {
+            get { return this.files; }
+            set
+            {
+                this.files = value;
+                this.chunks = this.mongo[this.files.DbName][this.files.Name.Replace(".files", ".chunks")];
+            }
+        }
+
+        public string CollectionName
+        {
+            get { return this.files.Name; }
+            set
+            {
+                if( !value.EndsWith(".files" ))
+                    value += ".files";
+                this.Collection = this.mongo.CurrentDB[value];
+            }
+        }
+
+        public int ChunkSize
+        {
+            get;
+            set;
+        }
+
+        public string MD5
+        {
+            get;
+            internal set;
+        }
+
+        #endregion
+
+        #region Public Methods
+
+        public byte[] Read()
+        {
+            if (this.Exists)
+            {
+                return  this.GetFile(this.Filename);
+            }
+            else
+            {
+                throw new FileNotFoundException("Impossibile leggere il file '" + this.Filename + "' dalla Collection '" + this.files.FullName + "'");
+            }
+        }
+
+        public void Write(byte[] buffer)
+        {
+            this.Write(buffer, false, null);
+        }
+
+        public void Write(byte[] buffer, bool overwrite)
+        {
+            this.Write(buffer, overwrite, null);
+        }
+
+        public void Write(byte[] buffer, bool overwrite, string contentType)
+        {
+            this.ChunkFile(buffer, this.Filename, overwrite, contentType);
+        }
+
+        public void Refresh()
+        {
+            if (string.IsNullOrEmpty(this.Filename))
+            {
+                this.FileDocument = null;
+            }
+            else
+            {
+                bool closeConnection = false;
                 try
                 {
-                    buffer = new byte[fs.Length];
-                    fs.Read(buffer, 0, buffer.Length);
+                    if (this.mongo.Connection.State != ConnectionState.Opened)
+                    {
+                        this.mongo.Connection.Open();
+                        closeConnection = true;
+                    }
+                    Document searcher = new Document().Append("filename", this.Filename);
+                    this.FileDocument = files.FindOne(searcher);
+                }
+                catch (Exception)
+                {
+                    throw;
                 }
                 finally
                 {
-                    fs.Close();
+                    if (closeConnection)
+                    {
+                        this.mongo.Connection.Close();
+                    }
                 }
             }
-            this.ChunkFile(buffer, mongoFilename, overwrite, contentType);
         }
 
-        public void StoreFile(Stream stream, string mongoFilename, bool overwrite, string contentType)
+        public void Delete()
         {
-            byte[] buffer = null;
-            using (BinaryReader fs = new BinaryReader(stream))
+            if (this.Exists)
             {
+                bool closeConnection = false;
                 try
                 {
-                    buffer = new byte[fs.BaseStream.Length];
-                    fs.Read(buffer, 0, buffer.Length);
+                    if (this.mongo.Connection.State != ConnectionState.Opened)
+                    {
+                        this.mongo.Connection.Open();
+                        closeConnection = true;
+                    }
+
+                    foreach (Chunk erased in this._chunksDocument)
+                    {
+                        chunks.Delete(erased.Document);
+                    }
+                    files.Delete(this.FileDocument);
+
+                }
+                catch (Exception)
+                {
+                    throw;
                 }
                 finally
                 {
-                    fs.Close();
+                    if (closeConnection)
+                    {
+                        this.mongo.Connection.Close();
+                    }
+                }
+
+                this.FileDocument = null;
+            }
+            else
+            {
+                throw new FileNotFoundException("Impossibile eliminare il file '" + this.Filename + "'");
+            }
+        }
+
+        public void Touch()
+        {
+            if (this.Exists)
+            {
+                bool closeConnection = false;
+                try
+                {
+                    if (this.mongo.Connection.State != ConnectionState.Opened)
+                    {
+                        this.mongo.Connection.Open();
+                        closeConnection = true;
+                    }
+
+                    this.UploadDate = DateTime.Now;
+                    this.FileDocument["uploadDate"] = this.UploadDate;
+
+                    files.Update(this.FileDocument);
+
+                }
+                catch (Exception)
+                {
+                    throw;
+                }
+                finally
+                {
+                    if (closeConnection)
+                    {
+                        this.mongo.Connection.Close();
+                    }
                 }
             }
-            this.ChunkFile(buffer, mongoFilename, overwrite, contentType);
+            else
+            {
+                throw new FileNotFoundException("Impossibile eseguire il Touch per il file '" + this.Filename + "'");
+            }
         }
 
-        public void StoreFile(byte[] bytes, string mongoFilename, bool overwrite, string contentType)
+        #endregion
+
+        #region private Properties
+        private string bucketName;
+
+        private Document FileDocument
         {
-            this.ChunkFile(bytes, mongoFilename, overwrite, contentType);
+            get { return _fileDocument; }
+            set 
+            {
+                if (_fileDocument != value)
+                {
+                    _fileDocument = value;
+                    _chunksDocument.Clear();
+                    if (_fileDocument != null)
+                    {
+                        this._filename = _fileDocument["filename"].ToString();
+                        this.ChunkSize = Convert.ToInt32(_fileDocument["chinkSize"]);
+                        this.Length = Convert.ToInt32(_fileDocument["length"]);
+                        this.Oid = (MongoDB.Driver.Oid)_fileDocument["_id"];
+                        this.UploadDate = Convert.ToDateTime(_fileDocument["uploadDate"]);
+                        this.MD5 = _fileDocument["md5"].ToString();
+                    }
+                    else
+                    {
+                        this.ChunkSize = DEFAULT_CHUNKSIZE;
+                        this.Length = int.MinValue;
+                        this.Oid = new Oid();
+                        this.UploadDate = DateTime.MinValue;
+                        this.MD5 = null;
+                    }
+                }
+            }
         }
 
-        public byte[] GetFile(string mongoFilename)
+        #endregion
+
+        #region private Methods
+
+        private byte[] GetFile(string mongoFilename)
         {
+            if (!this.Exists)
+            {
+                return null;
+            }
+
             byte[] retBuffer = null;
-            _fileDocument = new Document();
-            _fileDocument.Add("filename", mongoFilename);
-            _chunksDocument.Clear();
+            
             System.Security.Cryptography.MD5 sscMD5 = System.Security.Cryptography.MD5.Create();
 
-            bool closeConnection = false;
-            try
+            if (_chunksDocument.Count == 0)
             {
-                if (this.mongo.Connection.State != ConnectionState.Opened)
-                {
-                    this.mongo.Connection.Open();
-                    closeConnection = true;
-                }
 
-                Document file = files.FindOne(_fileDocument);
-                if (file != null)
+                bool closeConnection = false;
+                try
                 {
-                    List<Document> chunksList = new List<Document>();
+
+                    if (this.mongo.Connection.State != ConnectionState.Opened)
+                    {
+                        this.mongo.Connection.Open();
+                        closeConnection = true;
+                    }
+
+                    List<Chunk> chunksList = new List<Chunk>();
                     Document searcher = new Document();
-                    searcher.Add("files_id", file["_id"]);
+                    searcher.Add("files_id", this.Oid);
+
                     foreach (Document d in chunks.Find(searcher).Documents)
                     {
-                        chunksList.Add(d);
+                        Chunk c = Chunk.CreateFromDocument(d);
+                        _chunksDocument.Add(c);
                     }
-                    chunksList.Sort(delegate(Document a, Document b)
+                    chunksList.Sort(delegate(Chunk a, Chunk b)
                     {
                         if (a == null && b == null) return 0;
                         else if (a == null) return -1;
                         else if (b == null) return 1;
                         else
                         {
-                            return Convert.ToInt32(a["n"]) - Convert.ToInt32(b["n"]);
+                            return a.Number - b.Number;
                         }
                     });
-                    _fileDocument = file;
-                    _chunksDocument = chunksList;
-                }
-                else
-                {
-                    throw new FileNotFoundException("Impossibile ottenere il file '" + mongoFilename + "' dalla collection '" + this.files.FullName + "'");
-                }
 
-                retBuffer = new byte[Convert.ToInt32( _fileDocument["length"] )];
-                int destIndex = 0;
-                foreach (Document d in _chunksDocument)
-                {
-                    byte[] chunkBuffer = (byte[])d["data"];
-                    //int number = Convert.ToInt32(d["n"]);
-                    Array.Copy(chunkBuffer, 0, retBuffer, destIndex, chunkBuffer.Length);
-                    destIndex += chunkBuffer.Length;
                 }
-
-                string hash = _fileDocument["md5"].ToString();
-                byte[] mHash = sscMD5.ComputeHash(retBuffer);
-
-                if (hash != Convert.ToBase64String(mHash))
+                catch (Exception)
                 {
-                    throw new InvalidDataException("Hash MD5 errato per il file '" + mongoFilename + "' dalla collection '" + this.files.FullName + "'");
+                    throw;
+                }
+                finally
+                {
+                    if (closeConnection)
+                    {
+                        this.mongo.Connection.Close();
+                    }
                 }
             }
-            catch (Exception)
+
+            retBuffer = new byte[this.Length];
+
+            int destIndex = 0;
+            foreach (Chunk c in _chunksDocument)
             {
-                throw;
+                byte[] chunkBuffer = c.Data;
+                Array.Copy(chunkBuffer, 0, retBuffer, destIndex, chunkBuffer.Length);
+                destIndex += chunkBuffer.Length;
             }
-            finally
+
+            byte[] mHash = sscMD5.ComputeHash(retBuffer);
+
+            if (this.MD5 != Convert.ToBase64String(mHash))
             {
-                if (closeConnection)
-                {
-                    this.mongo.Connection.Close();
-                }
+                throw new InvalidDataException("Hash MD5 errato per il file '" + mongoFilename + "' dalla collection '" + this.files.FullName + "'");
             }
 
             return retBuffer;
         }
 
-        public void DeleteFile(string mongoFilename)
-        {            
-            Document doc = new Document();
-            doc.Add("filename", mongoFilename);
-            Document result = files.FindOne(doc);
-            if (result != null)
-            {
-                this.CreateIndex();
-                Document eraser = new Document();
-                eraser.Add("files_id", result["_id"]);
-                foreach (Document erased in chunks.Find(eraser).Documents)
-                {
-                    chunks.Delete(erased);
-                }
-                files.Delete(result);
-            }
-        }
-       
-        #region Properties
-        private string bucketName;
-
-        //private void ChunkFile(byte[] data, string mongoname, bool overwrite)
-        //{
-        //    ChunkFile(data, mongoname, overwrite, null);
-        //}
-
         private void ChunkFile(byte[] data, string mongoname, bool overwrite, string contentType)
         {
-            _fileDocument = new Document();
-            _fileDocument.Add("filename", mongoname);
-
             if (string.IsNullOrEmpty(contentType))
             {
                 contentType = "file/undef";
@@ -224,7 +392,7 @@ namespace MongoDB.Driver.GridFS
 
             _chunksDocument.Clear();
             System.Security.Cryptography.MD5 sscMD5 = System.Security.Cryptography.MD5.Create();
-
+            Document file = null;
             bool closeConnection = false;
             try
             {
@@ -234,52 +402,52 @@ namespace MongoDB.Driver.GridFS
                     closeConnection = true;
                 }
 
-                Document file = files.FindOne(_fileDocument);
+                file = files.FindOne(this.FileDocument);
                 if (file != null)
                 {
                     if (overwrite)
                     {
-                        _fileDocument = file;
-                        _fileDocument["length"] = data.Length;
-                        _fileDocument["contentType"] = contentType;
-                        _fileDocument["uploadDate"] = DateTime.Now;
+                        file["length"] = data.Length;
+                        file["contentType"] = contentType;
+                        file["uploadDate"] = DateTime.Now;
+                        file["chunkSize"] = this.ChunkSize;
 
                         byte[] mHash = sscMD5.ComputeHash(data);
 
-                        _fileDocument["md5"] = Convert.ToBase64String(mHash);
+                        file["md5"] = Convert.ToBase64String(mHash);
 
-                        files.Update(_fileDocument);
+                        files.Update(file);
 
                         Document eraser = new Document();
-                        eraser.Add("files_id", _fileDocument["_id"]);
+                        eraser.Add("files_id", file["_id"]);
                         foreach (Document erased in chunks.Find(eraser).Documents)
                         {
                             chunks.Delete(erased);
                         }
 
-                        if (data.Length <= DEFAULT_CHUNKSIZE)
+                        if (data.Length <= this.ChunkSize)
                         {
-                            Document chunk = new Document();
-                            chunk.Add("files_id", _fileDocument["_id"]);
-                            chunk.Add("n", 0);
-                            chunk.Add("data", data);
+                            Chunk chunk = new Chunk();
+                            chunk.FileID = this.Oid;
+                            chunk.Number = 0;
+                            chunk.Data = data;
                             _chunksDocument.Add(chunk);
                         }
                         else
                         {
-                            int chucksNumbers = data.Length / DEFAULT_CHUNKSIZE + (data.Length % DEFAULT_CHUNKSIZE > 0 ? 1 : 0);
+                            int chucksNumbers = data.Length / this.ChunkSize + (data.Length % this.ChunkSize > 0 ? 1 : 0);
                             for (int i = 0; i < chucksNumbers; i++)
                             {
-                                byte[] buffer = new byte[i < chucksNumbers - 1 ? DEFAULT_CHUNKSIZE : data.Length % DEFAULT_CHUNKSIZE];
-                                Array.Copy(data, i * DEFAULT_CHUNKSIZE, buffer, 0, buffer.Length);
+                                byte[] buffer = new byte[i < chucksNumbers - 1 ? this.ChunkSize : data.Length % this.ChunkSize];
+                                Array.Copy(data, i * this.ChunkSize, buffer, 0, buffer.Length);
 
-                                Document chunk = new Document();
-                                chunk.Add("files_id", _fileDocument["_id"]);
-                                chunk.Add("n", i);
-                                chunk.Add("data", buffer);
+                                Chunk chunk = new Chunk();
+                                chunk.FileID = this.Oid;
+                                chunk.Number = i;
+                                chunk.Data = buffer;
                                 _chunksDocument.Add(chunk);
                             }
-                        } 
+                        }
                     }
                     else
                     {
@@ -288,51 +456,52 @@ namespace MongoDB.Driver.GridFS
                 }
                 else
                 {
+                    file = new Document();
                     OidGenerator oidg = new OidGenerator();
-                    _fileDocument.Add("_id", oidg.Generate());
-                    _fileDocument.Add("contentType", contentType);
-                    _fileDocument.Add("length", data.Length);
-                    _fileDocument.Add("chunkSize", DEFAULT_CHUNKSIZE);
-                    _fileDocument.Add("uploadDate", DateTime.Now);
+                    file.Add("_id", oidg.Generate());
+                    file.Add("contentType", contentType);
+                    file.Add("length", data.Length);
+                    file.Add("chunkSize", DEFAULT_CHUNKSIZE);
+                    file.Add("uploadDate", DateTime.Now);
 
                     byte[] mHash = sscMD5.ComputeHash(data);
 
-                    _fileDocument.Add("md5", Convert.ToBase64String(mHash));
+                    file.Add("md5", Convert.ToBase64String(mHash));
 
-                    files.Insert(_fileDocument);
+                    files.Insert(file);
 
-                    if (data.Length <= DEFAULT_CHUNKSIZE)
+                    if (data.Length <= this.ChunkSize)
                     {
-                        Document chunk = new Document();
-                        chunk.Add("files_id", _fileDocument["_id"]);
-                        chunk.Add("n", 0);
-                        chunk.Add("data", data);
+                        Chunk chunk = new Chunk();
+                        chunk.FileID = this.Oid;
+                        chunk.Number = 0;
+                        chunk.Data = data;
                         _chunksDocument.Add(chunk);
                     }
                     else
                     {
-                        int chucksNumbers = data.Length / DEFAULT_CHUNKSIZE + (data.Length % DEFAULT_CHUNKSIZE > 0 ? 1 : 0);
+                        int chucksNumbers = data.Length / this.ChunkSize + (data.Length % this.ChunkSize > 0 ? 1 : 0);
                         for (int i = 0; i < chucksNumbers; i++)
                         {
-                            byte[] buffer = new byte[i < chucksNumbers - 1 ? DEFAULT_CHUNKSIZE : data.Length % DEFAULT_CHUNKSIZE];
-                            Array.Copy(data, i * DEFAULT_CHUNKSIZE, buffer, 0, buffer.Length);
+                            byte[] buffer = new byte[i < chucksNumbers - 1 ? this.ChunkSize : data.Length % this.ChunkSize];
+                            Array.Copy(data, i * this.ChunkSize, buffer, 0, buffer.Length);
 
-                            Document chunk = new Document();
-                            chunk.Add("files_id", _fileDocument["_id"]);
-                            chunk.Add("n", i);
-                            chunk.Add("data", buffer);
+                            Chunk chunk = new Chunk();
+                            chunk.FileID = this.Oid;
+                            chunk.Number = i;
+                            chunk.Data = buffer;
                             _chunksDocument.Add(chunk);
                         }
-                    }                    
-                }
-                if (_fileDocument != null && _chunksDocument.Count > 0)
-                {
-                    this.CreateIndex();
-                    foreach (Document cc in _chunksDocument)
-                    {
-                        chunks.Insert(cc);
                     }
                 }
+
+                this.CreateIndex();
+                foreach (Chunk c in _chunksDocument)
+                {
+                    chunks.Insert(c.Document);
+                }
+                this.FileDocument = file;
+
             }
             catch (Exception)
             {

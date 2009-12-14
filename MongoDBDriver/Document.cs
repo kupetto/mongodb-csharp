@@ -78,5 +78,56 @@ namespace MongoDB.Driver
                 dest[key] = this[key];
             }
         }
+
+        public override bool Equals(object obj)
+        {
+            if (obj is Document)
+            {
+                Document doc = obj as Document;
+
+                if (this.Contains("_id"))
+                {
+                    if (doc.Contains("_id"))
+                    {
+                        return this["_id"].Equals(doc["_id"]);
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+                else if (doc.Contains("_id"))
+                {
+                    return false;
+                }
+                else
+                {
+                    return base.Equals(doc);
+                }
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        public override int  GetHashCode()
+        {
+ 	         return base.GetHashCode();
+        }
+
+        public static bool operator ==(Document a, Document b)
+        {
+            if (((object)a) == null && ((object)b) == null) return true;
+            else if ( ((object)a) != null) return a.Equals(b);
+            else return false;
+        }
+
+        public static bool operator != (Document a, Document b)
+        {
+            if (((object)a) == null && ((object)b) == null) return false;
+            else if (((object)a) != null) return !a.Equals(b);
+            else return true;
+        }
     }
 }
